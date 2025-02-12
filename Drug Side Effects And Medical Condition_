@@ -1,0 +1,104 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from mlxtend.frequent_patterns import apriori, association_rules
+
+# Load the dataset (adjust the file path as necessary)
+df = pd.read_csv('drugs_side_effects_drugs_com.csv')
+
+# Display the first few rows
+print(df.head())
+
+# Check for missing values
+print(df.isnull().sum())
+
+# Example: Filling missing values for key columns
+df['side_effects'] = df['side_effects'].fillna('Unknown')
+df['related_drugs'] = df['related_drugs'].fillna('Unknown')
+df['rating'] = pd.to_numeric(df['rating'], errors='coerce').fillna(0)
+df['no_of_reviews'] = pd.to_numeric(df['no_of_reviews'], errors='coerce').fillna(0)
+
+# For categorical columns with NaN, fill with a placeholder like 'Unknown'
+df['generic_name'] = df['generic_name'].fillna('Unknown')
+df['drug_classes'] = df['drug_classes'].fillna('Unknown')
+df['rx_otc'] = df['rx_otc'].fillna('Unknown')
+df['pregnancy_category'] = df['pregnancy_category'].fillna('Unknown')
+
+# Clean the 'activity' column: remove spaces and '%' then convert to float in [0,1]
+df['activity'] = df['activity'].astype(str).str.replace(r'\s+', '', regex=True)\
+                                     .str.rstrip('%').astype('float') / 100
+
+# Display summary statistics
+print(df.describe())
+
+# Histogram of drug ratings
+plt.figure(figsize=(10, 6))
+sns.histplot(df['rating'], bins=10, kde=True)
+plt.title('Distribution of Drug Ratings')
+plt.xlabel('Rating')
+plt.ylabel('Frequency')
+plt.show()
+
+# Top drugs by medical condition
+top_drugs = df.groupby('medical_condition')['drug_name'].value_counts().nlargest(10)
+print(top_drugs)
+
+# Side effects frequency counts
+side_effect_counts = df['side_effects'].value_counts().head(10)
+print(side_effect_counts)
+
+# Box plot of drug ratings by class
+plt.figure(figsize=(12, 8))
+sns.boxplot(x='drug_classes', y='rating', data=df)
+plt.xticks(rotation=90)
+plt.title('Drug Ratings by Class')
+plt.show()
+
+# Initialize the label encoder
+le = LabelEncoder()
+
+# Encode selected categorical columns
+for col in ['generic_name', 'medical_condition', 'drug_classes', 'rx_otc', 'pregnancy_category', 'side_effects']:
+    df[col] = le.fit_transform(df[col].astype(str))
+
+# Standardize numerical features (example with a subset of columns)
+features = ['generic_name', 'medical_condition', 'no_of_reviews', 'side_effects', 'rating']
+scaler = StandardScaler()
+df_scaled = pd.DataFrame(scaler.fit_transform(df[features]), columns=features)
+print(df_scaled.head())
+
+# Frequent itemsets and association rules for side effects
+
+# Ensure 'side_effects' is string and fill missing values (again if necessary)
+df['side_effects'] = df['side_effects'].fillna('').astype(str)
+
+# Create dummy variables for common side effects
+df['has_hives'] = df['side_effects'].apply(lambda x: 1 if 'hives' in x.lower() else 0)
+df['has_difficulty_breathing'] = df['side_effects'].apply(
+    lambda x: 1 if ('difficult breathing' in x.lower() or 'difficulty breathing' in x.lower()) else 0)
+df['has_itching'] = df['side_effects'].apply(lambda x: 1 if 'itching' in x.lower() else 0)
+
+# Create a small dataset of these indicators
+basket = df[['has_hives', 'has_difficulty_breathing', 'has_itching']]
+
+# Check the sum of each dummy variable to see if there are enough positive cases
+print("Sum of dummy variables:\n", basket.sum())
+
+# Lower the minimum support threshold if needed (e.g., 1%)
+frequent_itemsets = apriori(basket, min_support=0.01, use_colnames=True)
+
+if frequent_itemsets.empty:
+    print("No frequent itemsets found. Consider lowering the support threshold or checking your data.")
+else:
+    # Generate association rules
+    rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=0.5)
+    print(rules)
+
+# Plot the correlation heatmap using only numeric columns
+numeric_df = df.select_dtypes(include=[np.number])
+plt.figure(figsize=(12, 8))
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm', fmt=".2f")
+plt.title('Correlation Heatmap')
+plt.show()
